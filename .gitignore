@@ -1,0 +1,6 @@
+
+#Ignore secrets and local config files 
+*.key
+*.pem
+.env
+
