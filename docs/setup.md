@@ -1,5 +1,4 @@
 # Setup: Cloud Infrastructure and VM Provisioning
-
 This section covers the foundational cloud infrastructure setup required to run the Escape the Shell project. It details the creation and configuration of the Virtual Cloud Network (VCN), internet gateway, subnet, security lists, and the initial virtual machine provisioning on Oracle Cloud. This groundwork establishes the necessary network segmentation, connectivity, and security postures for running containerized puzzle environments securely and efficiently.
 
 ## Virtual Cloud Network (VCN) Setup
