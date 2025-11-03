@@ -69,65 +69,83 @@ Decisions & Justifications:
 - Ubuntu 24.04 remains a solid and secure base OS choice, fully compatible with rootless Podman.
 
 # Container Setup: Escape Environment
-This section covers the creation and deployment of the ES container environment on the previously provisioned VM. It details the container image preparation, user creation, SSH configuration, and public accessibility considerations. This establishes the functional puzzle environment that players will connect to, while maintaining isolation from the host and other containers.
+This section covers the creation and deployment of the ES container environment on the previously provisioned VM. It details the container image preparation, user creation, SSH configuration, security hardening, and public accessibility considerations. This establishes the functional puzzle environment that players will connect to, while maintaining isolation from the host and other containers.
 
 ## Container User and Workspace
-- Host-side user:
-  - Created _escape_ user to administer the game environment.
-  - Granted temporary sudo for package installs (Podman, network tools, etc.), but production gameplay does **not** require container users to be sudoers.
+**Host-side user:**
+- Created `escape` user to administer the game environment
+- Granted temporary sudo for package installs (Podman, network tools, etc.), but production gameplay does **not** require container users to be sudoers
 
-Justification:
-- Host-level isolation: separating game management from root reduces risk.
-- Workspace Directory: _/home/escape/escape-level1_ dedicated to Dockerfiles, container build artifacts, and game files for Level 1. Each level will have its own directory under _/home/escape/_ (e.g., _/home/escape/escape-level2_), ensuring isolation of files and containers per level.
-- Maintains organizational clarity and reproducibility for future levels.
+**Justification:**
+- Host-level isolation: separating game management from root reduces risk
+- Workspace Directory: `/home/escape/escape-level1` dedicated to Dockerfiles, container build artifacts, and game files for Level 1. Each level will have its own directory under `/home/escape/` (e.g., `/home/escape/escape-level2`), ensuring isolation of files and containers per level
+- Maintains organizational clarity and reproducibility for future levels
 
 ## First Container: Escape Level 1
 
 ### Image Selection and Preparation
-- Base image: _alpine:latest_ (optimized for minimal resource usage).
-- Installed in image: openssh-server (for SSH access); openrc (for initializing SSH service).
-Justification:
-- Alpine provides a lightweight runtime, ideal for public-access puzzle containers.
-- SSH enables interactive remote gameplay/testing without host exposure.
+- **Base image:** `alpine:latest` (optimized for minimal resource usage)
+- **Installed in image:** `openssh-server` (for SSH access)
+
+**Justification:**
+- Alpine provides a lightweight runtime, ideal for public-access puzzle containers
+- SSH enables interactive remote gameplay/testing without host exposure
 
 ### Container User Configuration
-- User inside container: Created dedicated _escape_ user.
-- Privileges: Not a sudoer; designed for gameplay isolation.
-Justification:
-- Prevents escalation risks and enforces container boundaries.
+- **User inside container:** Created dedicated `escape` user with password "escape"
+- **Privileges:** Not a sudoer; designed for gameplay isolation
 
-### Dockerfile Highlights
-- Uses _alpine:latest_ as the lightweight base image.
-- Updates APK package index and installs _openssh-server_ without cache to keep image size minimal.
-- Creates a non-root user escape with password escape for gameplay access.
+**Justification:**
+- Prevents escalation risks and enforces container boundaries
+- Simple password authentication for initial level access
+
+### Dockerfile Configuration
+- Uses `alpine:latest` as the lightweight base image
+- Updates APK package index and installs `openssh-server` without cache to keep image size minimal
+- Creates a non-root user `escape` with password `escape` for gameplay access
 - Prepares SSH by:
-    - Creating _/var/run/sshd_ directory.
-    - Generating SSH host keys using _ssh-keygen -A._
-    - Configuring SSH daemon to:
-        - Listen on port 2222 instead of default 22.
-        - Disable root login _(PermitRootLogin no)._
-        - Enable password authentication _(PasswordAuthentication yes)._
-    - Exposes port 2222 for SSH access.
-    - Sets container command to run SSH daemon in the foreground _(/usr/sbin/sshd -D)._
-  
-### Container Build and Deployment
-- Build Command: _podman build -t escape-level1 ._
-- Run Command: _podman run -d -p 2222:2222 --name escape-level1 
-                escape-level1:latest_
+  - Creating `/var/run/sshd` directory
+  - Generating SSH host keys using `ssh-keygen -A`
+  - Configuring SSH daemon to:
+    - Listen on port `2222` instead of default `22`
+    - Disable root login (`PermitRootLogin no`)
+    - Enable password authentication (`PasswordAuthentication yes`)
+    - Restrict access to `escape` user only (`AllowUsers escape`)
+    - Limit authentication attempts (`MaxAuthTries 3`)
+- Exposes port `2222` for SSH access
+- Sets container command to run SSH daemon in the foreground (`/usr/sbin/sshd -D`)
 
-Parameters Explained:
-- _-d_ runs the container in detached mode, allowing independent operation.
-- _-p 2222:2222_ maps host VM port 2222 to container port 2222 to enable external SSH connections to the container.
-- _--name escape-level1_ tags the container with a straightforward name for easy management commands.
+### Security Hardening
+**Runtime Restrictions**
+- `--security-opt=no-new-privileges` — blocks processes from getting elevated privileges even if binaries contain setuid bits.
+- `--memory=512m` — caps total memory usage, preventing exhaustion or denial-of-service on the host.
+- `--cpus=1.0` — isolates CPU access to a single core, ensuring predictable performance and eliminating cross-container contention.
+- `--publish 0.0.0.0:2222:2222` — explicitly exposes a single port (2222) for controlled external access; no other ports are reachable.
 
-### Verification Steps
-- Check container running status with: _podman ps -a_
-- SSH into container locally from VM: ssh _escape@localhost -p 2222_
-- SSH from external machine using the VM public IP: _ssh escape@<150.230.125.133> -p 2222_
+**SSH Daemon Constraints**
+- `PermitRootLogin no` — disables root authentication, removing the highest-privilege attack vector.
+- `AllowUsers escape` — enforces a single allowed login identity; no other users permitted to authenticate.
+- `MaxAuthTries 3` — limits repeated login attempts, mitigating brute-force attacks.
+- `PasswordAuthentication yes` — retained intentionally for gameplay mechanics; future iterations may migrate to key-based auth for admin channels only.
+- `Port 2222` — segregates container-level SSH from host SSH (default 22), preventing accidental interference or exposure.
 
-Justification:
-- Ensures an accessible, secure SSH environment for gameplay under a non-root user.
-- Using port 2222 reduces conflict with default SSH daemon port on host.
-- Containerized SSH access isolates gameplay environment without exposing host root.
-- Preparation enables easy scaling to additional puzzle levels and multi-user deployment.
+**Filesystem and Image-Level Controls**
+- Base image: `alpine:latest` — minimal footprint reduces available binaries and libraries for exploitation.
+- `apk add --no-cache` — prevents cached package persistence, minimizing attack surface and image bloat.
+- `/var/run/sshd` isolated runtime directory — ensures no host file system mounts are involved.
+- No volume mounts or privileged flags used — the container operates entirely within its namespace.
+
+**Operational Practices**
+- Clean rebuild enforced by `start-docker.sh` through `podman stop` and `podman rm` before launch — guarantees no state carryover or residual sessions.
+- Detached mode `(-d)` ensures background execution under isolated context.
+- Non-sudo user `escape` inside container restricts filesystem modification and command execution scope.
+
+### Security Validation
+- SSH Access: login as `escape` works; root login blocked.
+- Privileges: no `sudo`, `NoNewPrivs=1`, seccomp enabled.
+- Filesystem: container cannot write to `/etc`, `/bin`, `/usr`; host FS inaccessible.
+- Package Management: `apk update` denied.
+- Resources: CPU and memory limits enforced; process spawning constrained.
+- Network: only container-internal interfaces reachable; external LAN blocked.
+- Mounts: overlay filesystem; no host mounts, tmpfs for `/dev` and `/proc`.
 
