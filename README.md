@@ -49,7 +49,9 @@ ES provides a secure, isolated, and scalable environment for players to learn Li
 - Default security list with SSH and ICMP rules active, to be refined.
 - Ubuntu VM provisioned on Oracle Cloud Free Tier with Podman installed.
 - SSH access verified and stable.
-- Escape Level 1 container created and deployed from Alpine with SSH on port 2222.
-- Container workspace set up under _/home/escape/escape-level1_ for multi-level support.
-- Container running detached with mapped port; basic functionality testing completed.
+- The Escape Level 1 container is now:
+  - Publicly accessible on port 2222
+  - Securely isolated from host and other containers
+  - Resource limited to prevent abuse (512MB RAM, 1 CPU)
+  - Ready for puzzle content integration
 
